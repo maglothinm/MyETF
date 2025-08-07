@@ -2,6 +2,10 @@ import asyncio
 import os
 from playwright.async_api import async_playwright
 import requests
+import subprocess
+
+# Ensure Playwright browsers are installed
+subprocess.run(["playwright", "install", "chromium"], check=True)
 
 # Pushover credentials from GitHub Secrets
 PUSHOVER_API_TOKEN = os.getenv("PUSHOVER_API_TOKEN")
