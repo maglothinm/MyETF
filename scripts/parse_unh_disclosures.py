@@ -21,24 +21,24 @@ def send_notification(match_found, hits):
         return
 
     if match_found:
-        message = f"📈 UNH mentioned in {len(hits)} disclosure(s):\n" + "\n".join(hits)
+        message = f"📈 UNH Alert: Found {len(hits)} matching disclosure(s).\n"
+        message += "\n".join(hits[:3])  # Include top 3 hits
     else:
-        message = "ℹ️ No UNH mentions found in today’s disclosures."
+        message = "ℹ️ No UNH matches found in today's disclosures."
 
     try:
-        resp = requests.post("https://api.pushover.net/1/messages.json", data={
+        response = requests.post("https://api.pushover.net/1/messages.json", data={
             "token": PUSHOVER_API_TOKEN,
             "user": PUSHOVER_USER_KEY,
+            "title": "UNH Disclosure Scan",
             "message": message,
-            "title": "UNH Disclosure Alert",
-            "priority": 0
+            "url": HOUSE_URL,
+            "url_title": "House Disclosures"
         })
-        if resp.status_code == 200:
-            print("✅ Pushover notification sent.")
-        else:
-            print(f"❌ Failed to send Pushover: {resp.status_code} - {resp.text}")
+        response.raise_for_status()
+        print("✅ Pushover notification sent.")
     except Exception as e:
-        print(f"❌ Error sending Pushover notification: {e}")
+        print(f"❌ Failed to send Pushover notification: {e}")
 
 def extract_text_from_pdf(url):
     try:
@@ -66,7 +66,7 @@ def fetch_house_disclosures():
         pdf_urls = [
             "https://disclosures-clerk.house.gov" + link["href"]
             for link in links
-            if link["href"].endswith(".pdf")
+            if link["href"].endswith(".pdf") and link["href"].startswith("/public_disc/financial-pdfs/")
         ]
         return pdf_urls[:10]
     except Exception as e:
