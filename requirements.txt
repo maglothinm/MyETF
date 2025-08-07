@@ -8,6 +8,7 @@
 # psycopg2-binary
 # python-dotenv
 # opencv-python
+# playwright
 # PyPDF2<3.0
 # datetime
 # awswrangler
