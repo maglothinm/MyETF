@@ -6,6 +6,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from PyPDF2 import PdfReader
+from urllib.parse import urljoin  # ✅ Fixes broken URL joins
 
 # Gmail credentials from GitHub Secrets
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS")
@@ -75,7 +76,7 @@ def fetch_house_disclosures():
         soup = BeautifulSoup(res.text, "html.parser")
         links = soup.find_all("a", href=True)
         pdf_urls = [
-            "https://disclosures-clerk.house.gov" + link["href"]
+            urljoin(HOUSE_URL, link["href"])
             for link in links
             if link["href"].endswith(".pdf")
         ]
@@ -92,7 +93,7 @@ def fetch_senate_disclosures():
         soup = BeautifulSoup(res.text, "html.parser")
         links = soup.find_all("a", href=True)
         pdf_urls = [
-            "https://efdsearch.senate.gov" + link["href"]
+            urljoin(SENATE_URL, link["href"])
             for link in links
             if link["href"].endswith(".pdf")
         ]
