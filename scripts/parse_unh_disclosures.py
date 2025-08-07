@@ -1,16 +1,12 @@
 import os
 import requests
-import smtplib
 from bs4 import BeautifulSoup
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from PyPDF2 import PdfReader
-from urllib.parse import urljoin  # ✅ Fixes broken URL joins
 
-# Gmail credentials from GitHub Secrets
-GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+# Pushover credentials from GitHub Secrets
+PUSHOVER_API_TOKEN = os.getenv("PUSHOVER_API_TOKEN")
+PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
 
 # Search terms
 SEARCH_TERMS = ["UNH", "UnitedHealth"]
@@ -19,38 +15,30 @@ SEARCH_TERMS = ["UNH", "UnitedHealth"]
 HOUSE_URL = "https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure"
 SENATE_URL = "https://efdsearch.senate.gov/search/"
 
-def send_email(match_found, hits):
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"📈 UNH Disclosure Alert - {datetime.now().strftime('%Y-%m-%d')}"
-    msg["From"] = GMAIL_ADDRESS
-    msg["To"] = GMAIL_ADDRESS
+def send_notification(match_found, hits):
+    if not PUSHOVER_API_TOKEN or not PUSHOVER_USER_KEY:
+        print("❌ Missing Pushover credentials.")
+        return
 
     if match_found:
-        body = f"<h2>Mentions of UNH or UnitedHealth found in filings:</h2><ul>"
-        for hit in hits:
-            body += f"<li><a href='{hit}'>{hit}</a></li>"
-        body += "</ul>"
+        message = f"📈 UNH mentioned in {len(hits)} disclosure(s):\n" + "\n".join(hits)
     else:
-        body = "<p>No references to UNH or UnitedHealth were found in today's PDFs.</p>"
-
-    body += f"""
-    <hr>
-    <p>Manual disclosure sites:</p>
-    <ul>
-      <li><a href="{HOUSE_URL}">House Disclosures</a></li>
-      <li><a href="{SENATE_URL}">Senate Disclosures</a></li>
-    </ul>
-    """
-
-    msg.attach(MIMEText(body, "html"))
+        message = "ℹ️ No UNH mentions found in today’s disclosures."
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_ADDRESS, GMAIL_ADDRESS, msg.as_string())
-            print("✅ Email sent.")
+        resp = requests.post("https://api.pushover.net/1/messages.json", data={
+            "token": PUSHOVER_API_TOKEN,
+            "user": PUSHOVER_USER_KEY,
+            "message": message,
+            "title": "UNH Disclosure Alert",
+            "priority": 0
+        })
+        if resp.status_code == 200:
+            print("✅ Pushover notification sent.")
+        else:
+            print(f"❌ Failed to send Pushover: {resp.status_code} - {resp.text}")
     except Exception as e:
-        print(f"❌ Failed to send email: {e}")
+        print(f"❌ Error sending Pushover notification: {e}")
 
 def extract_text_from_pdf(url):
     try:
@@ -76,11 +64,11 @@ def fetch_house_disclosures():
         soup = BeautifulSoup(res.text, "html.parser")
         links = soup.find_all("a", href=True)
         pdf_urls = [
-            urljoin(HOUSE_URL, link["href"])
+            "https://disclosures-clerk.house.gov" + link["href"]
             for link in links
             if link["href"].endswith(".pdf")
         ]
-        return pdf_urls[:10]  # Only check the most recent 10 filings
+        return pdf_urls[:10]
     except Exception as e:
         print(f"❌ House fetch failed: {e}")
         return []
@@ -93,7 +81,7 @@ def fetch_senate_disclosures():
         soup = BeautifulSoup(res.text, "html.parser")
         links = soup.find_all("a", href=True)
         pdf_urls = [
-            urljoin(SENATE_URL, link["href"])
+            "https://efdsearch.senate.gov" + link["href"]
             for link in links
             if link["href"].endswith(".pdf")
         ]
@@ -115,10 +103,10 @@ def main():
 
     if matched:
         print(f"✅ Found {len(matched)} matching disclosures.")
-        send_email(True, matched)
+        send_notification(True, matched)
     else:
         print("ℹ️ No matches found.")
-        send_email(False, [])
+        send_notification(False, [])
 
 if __name__ == "__main__":
     main()
