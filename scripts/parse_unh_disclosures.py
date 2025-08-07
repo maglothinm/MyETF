@@ -15,30 +15,25 @@ SEARCH_TERMS = ["UNH", "UnitedHealth"]
 HOUSE_URL = "https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure"
 SENATE_URL = "https://efdsearch.senate.gov/search/"
 
-def send_notification(match_found, hits):
+def send_pushover_notification(title, message):
     if not PUSHOVER_API_TOKEN or not PUSHOVER_USER_KEY:
         print("❌ Missing Pushover credentials.")
         return
-
-    if match_found:
-        message = f"📈 UNH Alert: Found {len(hits)} matching disclosure(s).\n"
-        message += "\n".join(hits[:3])  # Include top 3 hits
-    else:
-        message = "ℹ️ No UNH matches found in today's disclosures."
 
     try:
         response = requests.post("https://api.pushover.net/1/messages.json", data={
             "token": PUSHOVER_API_TOKEN,
             "user": PUSHOVER_USER_KEY,
-            "title": "UNH Disclosure Scan",
+            "title": title,
             "message": message,
-            "url": HOUSE_URL,
-            "url_title": "House Disclosures"
+            "priority": 0,
         })
-        response.raise_for_status()
-        print("✅ Pushover notification sent.")
+        if response.status_code == 200:
+            print("✅ Pushover notification sent.")
+        else:
+            print(f"❌ Failed to send Pushover: {response.text}")
     except Exception as e:
-        print(f"❌ Failed to send Pushover notification: {e}")
+        print(f"❌ Exception during Pushover send: {e}")
 
 def extract_text_from_pdf(url):
     try:
@@ -66,7 +61,7 @@ def fetch_house_disclosures():
         pdf_urls = [
             "https://disclosures-clerk.house.gov" + link["href"]
             for link in links
-            if link["href"].endswith(".pdf") and link["href"].startswith("/public_disc/financial-pdfs/")
+            if link["href"].endswith(".pdf")
         ]
         return pdf_urls[:10]
     except Exception as e:
@@ -103,10 +98,17 @@ def main():
 
     if matched:
         print(f"✅ Found {len(matched)} matching disclosures.")
-        send_notification(True, matched)
+        msg = "\n\n".join(matched)
+        send_pushover_notification(
+            f"📈 UNH Disclosure Alert - {datetime.now().strftime('%Y-%m-%d')}",
+            f"Mentions of UNH/UnitedHealth found:\n\n{msg}"
+        )
     else:
         print("ℹ️ No matches found.")
-        send_notification(False, [])
+        send_pushover_notification(
+            f"UNH Alert - {datetime.now().strftime('%Y-%m-%d')}",
+            "No references to UNH or UnitedHealth found today."
+        )
 
 if __name__ == "__main__":
     main()
