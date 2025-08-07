@@ -1,109 +1,81 @@
+import asyncio
 import os
+from playwright.async_api import async_playwright
 import requests
-import tempfile
-import fitz  # PyMuPDF
-import re
-from bs4 import BeautifulSoup
 
-# Pushover credentials
+# Pushover credentials from GitHub Secrets
 PUSHOVER_API_TOKEN = os.getenv("PUSHOVER_API_TOKEN")
 PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
 
-# Keywords to search for
-KEYWORDS = ["UNH", "UnitedHealth"]
+# Terms to scan for
+SEARCH_TERMS = ["UNH", "UnitedHealth"]
 
-# URLs
-HOUSE_BASE = "https://disclosures-clerk.house.gov"
-HOUSE_INDEX = f"{HOUSE_BASE}/PublicDisclosure/FinancialDisclosure"
-SENATE_INDEX = "https://www.ethics.senate.gov/public/index.cfm/financial-disclosure-reports"
-
-def send_pushover_notification(message):
+async def send_pushover_notification(message: str):
     if not PUSHOVER_API_TOKEN or not PUSHOVER_USER_KEY:
         print("Pushover credentials missing.")
         return
     response = requests.post("https://api.pushover.net/1/messages.json", data={
         "token": PUSHOVER_API_TOKEN,
         "user": PUSHOVER_USER_KEY,
-        "message": message
+        "message": message,
+        "title": "📈 UNH Trade Alert",
+        "priority": 1
     })
-    if response.status_code != 200:
-        print("Failed to send Pushover notification:", response.text)
-    else:
-        print("Notification sent successfully.")
+    print("Pushover response:", response.text)
 
-def download_pdf(url):
-    try:
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            tmp_file.write(response.content)
-            return tmp_file.name
-    except Exception as e:
-        print(f"Failed to download {url}: {e}")
-        return None
+async def scan_senate_disclosures():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
 
-def scan_pdf(file_path, keywords):
-    try:
-        doc = fitz.open(file_path)
-        text = ""
-        for page in doc:
-            text += page.get_text()
-        doc.close()
+        print("Navigating to Senate Ethics search page...")
+        await page.goto("https://efdsearch.senate.gov/search/")
+        
+        # Accept the checkbox and proceed
+        await page.check("#agree_statement")
+        await page.click("button[type='submit']")
 
-        hits = []
-        for keyword in keywords:
-            if re.search(rf"\b{re.escape(keyword)}\b", text, re.IGNORECASE):
-                hits.append(keyword)
-        return hits
-    except Exception as e:
-        print(f"Failed to read PDF {file_path}: {e}")
-        return []
+        # Wait for search form to load
+        await page.wait_for_selector("#filing_year")
 
-def get_house_disclosure_urls(limit=5):
-    try:
-        response = requests.get(HOUSE_INDEX, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        links = soup.find_all("a", href=re.compile(r"/public_disc/ptr-pdfs/\d{4}/\d+\.pdf"))
-        urls = [HOUSE_BASE + link["href"] for link in links]
-        return urls[:limit]
-    except Exception as e:
-        print(f"Failed to scrape House disclosures: {e}")
-        return []
+        # Submit a broad search (e.g. year = 2025)
+        await page.select_option("#filing_year", "2025")
+        await page.click("input[type='submit']")
 
-def get_senate_disclosure_urls(limit=5):
-    try:
-        response = requests.get(SENATE_INDEX, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        links = soup.find_all("a", href=re.compile(r"serve\?File_id=[\w-]+"))
-        urls = [f"https://www.ethics.senate.gov/public/index.cfm/files/serve?File_id={link['href'].split('=')[-1]}" for link in links]
-        return urls[:limit]
-    except Exception as e:
-        print(f"Failed to scrape Senate disclosures: {e}")
-        return []
+        # Wait for results to load
+        await page.wait_for_selector("table#filed-reports")
 
-def main():
-    urls = get_house_disclosure_urls(limit=5) + get_senate_disclosure_urls(limit=5)
-    print(f"Scanning {len(urls)} PDFs...")
+        print("Extracting PDF links...")
+        links = await page.locator("table#filed-reports a").all()
+        pdf_urls = []
+        for link in links:
+            href = await link.get_attribute("href")
+            if href and href.endswith(".pdf"):
+                pdf_urls.append("https://efdsearch.senate.gov" + href)
 
-    found_alerts = []
+        print(f"Found {len(pdf_urls)} PDF links.")
+        found_matches = []
 
-    for url in urls:
-        print(f"Processing: {url}")
-        pdf_path = download_pdf(url)
-        if pdf_path:
-            hits = scan_pdf(pdf_path, KEYWORDS)
-            if hits:
-                alert = f"Match for {', '.join(hits)} in:\n{url}"
-                print(alert)
-                found_alerts.append(alert)
-            os.unlink(pdf_path)
+        for url in pdf_urls:
+            try:
+                print(f"Scanning: {url}")
+                resp = requests.get(url, timeout=20)
+                if resp.status_code == 200:
+                    content = resp.content.decode("latin1", errors="ignore")
+                    for term in SEARCH_TERMS:
+                        if term.lower() in content.lower():
+                            found_matches.append((term, url))
+                            break
+            except Exception as e:
+                print(f"Failed to scan {url}: {e}")
 
-    if found_alerts:
-        send_pushover_notification("\n\n".join(found_alerts))
-    else:
-        print("No UNH-related trades found.")
+        await browser.close()
+
+        if found_matches:
+            alert_msg = "\n".join([f"{term} found in:\n{url}" for term, url in found_matches])
+            await send_pushover_notification(alert_msg)
+        else:
+            print("No UNH matches found.")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(scan_senate_disclosures())
