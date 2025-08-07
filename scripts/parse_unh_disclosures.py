@@ -81,5 +81,7 @@ async def scan_senate_disclosures():
         else:
             print("No UNH matches found.")
 
+        await page.screenshot(path="debug.png", full_page=True)
+
 if __name__ == "__main__":
     asyncio.run(scan_senate_disclosures())
