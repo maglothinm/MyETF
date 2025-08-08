@@ -12,16 +12,6 @@ KEYWORDS = ["UNH", "UnitedHealth"]
 # Senate disclosure URL (example — replace with correct one if needed)
 SENATE_DISCLOSURE_URL = "https://www.ethics.senate.gov/public/index.cfm/financial-disclosure"
 
-def send_notification(message):
-    if not PUSHOVER_API_TOKEN or not PUSHOVER_USER_KEY:
-        print("❌ Missing Pushover credentials.")
-        return
-    try:
-        api = PushoverAPI(user_key=PUSHOVER_USER_KEY, app_token=PUSHOVER_API_TOKEN)
-        api.send_message(message, title="UNH Disclosure Alert")
-        print("✅ Pushover notification sent.")
-    except Exception as e:
-        print(f"⚠️ Failed to send Pushover alert: {e}")
 
 def download_pdf(url, filename):
     try:
