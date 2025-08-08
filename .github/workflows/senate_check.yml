@@ -30,9 +30,3 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pdfplumber pytesseract pdf2image requests beautifulsoup4 pushover_complete
-
-      - name: Run UNH disclosure parser
-        run: python scripts/parse_unh_disclosures.py
-        env:
-          PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_API_TOKEN }}
-          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
