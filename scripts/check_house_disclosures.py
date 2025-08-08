@@ -1,89 +1,93 @@
 import os
+import zipfile
 import requests
-from bs4 import BeautifulSoup
+import tempfile
+import shutil
 import pdfplumber
-import pytesseract
-from pdf2image import convert_from_path
+from pushover import Client
 
-# Load secrets from GitHub Actions environment
+# === CONFIGURATION ===
+
+HOUSE_ZIP_URL = "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2025FD.ZIP"
+KEYWORDS = ["UNH", "UnitedHealth"]
+
+# Get Pushover credentials from GitHub Secrets or local environment
 PUSHOVER_API_TOKEN = os.getenv("PUSHOVER_API_TOKEN")
 PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
 
-# Define keywords to search for
-KEYWORDS = ["UNH", "UnitedHealth"]
 
-# House disclosure landing page (placeholder for now)
-HOUSE_DISCLOSURE_URL = "https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure"
+def download_and_extract_zip(zip_url):
+    """Download a ZIP file and extract PDFs to a temp folder."""
+    tmp_dir = tempfile.mkdtemp()
+    zip_path = os.path.join(tmp_dir, "disclosures.zip")
 
-def send_notification(message):
+    print(f"⬇️ Downloading ZIP from {zip_url}...")
+    response = requests.get(zip_url)
+    with open(zip_path, "wb") as f:
+        f.write(response.content)
+
+    print("📦 Extracting ZIP contents...")
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(tmp_dir)
+
+    pdf_files = [
+        os.path.join(tmp_dir, f)
+        for f in os.listdir(tmp_dir)
+        if f.lower().endswith(".pdf")
+    ]
+
+    print(f"📄 Found {len(pdf_files)} PDFs.")
+    return pdf_files, tmp_dir
+
+
+def extract_text_from_pdf(pdf_path):
+    """Extract text using pdfplumber."""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            text = ""
+            for page in pdf.pages:
+                text += page.extract_text() or ""
+            return text
+    except Exception as e:
+        print(f"⚠️ Error reading {pdf_path}: {e}")
+        return ""
+
+
+def send_pushover_notification(matching_files):
+    """Send Pushover alert with the matching file names."""
     if not PUSHOVER_API_TOKEN or not PUSHOVER_USER_KEY:
         print("❌ Missing Pushover credentials.")
         return
-    try:
-        response = requests.post(
-            "https://api.pushover.net/1/messages.json",
-            data={
-                "token": PUSHOVER_API_TOKEN,
-                "user": PUSHOVER_USER_KEY,
-                "title": "UNH Disclosure Alert",
-                "message": message
-            }
-        )
-        if response.ok:
-            print("✅ Pushover notification sent.")
-        else:
-            print(f"❌ Pushover error: {response.text}")
-    except Exception as e:
-        print(f"⚠️ Failed to send Pushover alert: {e}")
 
-def download_pdf(url, filename):
-    try:
-        response = requests.get(url)
-        with open(filename, 'wb') as f:
-            f.write(response.content)
-        print(f"📥 Downloaded {filename}")
-        return filename
-    except Exception as e:
-        print(f"⚠️ Error downloading PDF: {e}")
-        return None
+    message = f"✅ UNH match found in {len(matching_files)} House disclosures:\n"
+    message += "\n".join([os.path.basename(f) for f in matching_files])
 
-def extract_text_from_pdf(pdf_path):
-    try:
-        text = ""
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                text += page.extract_text() or ""
-        if not text.strip():
-            raise ValueError("pdfplumber failed, falling back to OCR")
-        return text
-    except Exception as e:
-        print(f"⚠️ pdfplumber failed on {pdf_path}: {e}")
-        return ocr_pdf(pdf_path)
+    print("📲 Sending Pushover alert...")
+    Client(user_key=PUSHOVER_USER_KEY, api_token=PUSHOVER_API_TOKEN).send_message(
+        message, title="House UNH Disclosure Alert"
+    )
 
-def ocr_pdf(pdf_path):
-    try:
-        images = convert_from_path(pdf_path)
-        return "\n".join(pytesseract.image_to_string(img) for img in images)
-    except Exception as e:
-        print(f"⚠️ OCR failed on {pdf_path}: {e}")
-        return ""
-
-def scan_text_for_keywords(text):
-    return any(keyword.lower() in text.lower() for keyword in KEYWORDS)
 
 def main():
-    # TODO: Replace with real PDF scraping logic
-    test_pdf_url = "https://www.ethics.senate.gov/downloads/your-test-disclosure.pdf"
-    local_filename = "house_disclosure.pdf"
+    pdf_files, tmp_dir = download_and_extract_zip(HOUSE_ZIP_URL)
 
-    if download_pdf(test_pdf_url, local_filename):
-        text = extract_text_from_pdf(local_filename)
-        if scan_text_for_keywords(text):
-            send_notification("🕵️ UNH-related trade found in House disclosure!")
-        else:
-            print("🔍 No UNH mentions found.")
+    matching_files = []
+    for pdf in pdf_files:
+        print(f"🔍 Scanning {os.path.basename(pdf)}...")
+        text = extract_text_from_pdf(pdf)
+        if any(keyword in text for keyword in KEYWORDS):
+            print(f"✅ Match found in {pdf}")
+            matching_files.append(pdf)
+
+    if matching_files:
+        send_pushover_notification(matching_files)
     else:
-        print("❌ Failed to download or process PDF.")
+        print("❌ No matches found.")
+
+    # Clean up
+    print("🧹 Cleaning up temporary files...")
+    shutil.rmtree(tmp_dir)
+
 
 if __name__ == "__main__":
     main()
