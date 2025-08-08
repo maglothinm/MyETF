@@ -1,14 +1,23 @@
 import os
-import re
-import asyncio
+import requests
+import zipfile
+import io
+from datetime import datetime
+import pdfplumber
+import pytesseract
+from pdf2image import convert_from_path
 from pushover import Client
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 # CONFIG
+SENATE_ZIP_URL = "https://www.ethics.senate.gov/public/_cache/files/ea40e7df-3bc7-4d71-b33e-338c63e66fc7/2025-public-financial-disclosure-reports.zip"
 KEYWORDS = ["UNH", "UnitedHealth", "United Health Group"]
 PUSHOVER_API_TOKEN = os.getenv("PUSHOVER_API_TOKEN")
 PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
+TEMP_DIR = "senate_pdfs"
 LOG_FILE = "senate_unh_matches.log"
+
+# Ensure temp dir exists
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 # Helper: Send Pushover alert
 def send_pushover_alert(title, message):
@@ -18,44 +27,60 @@ def send_pushover_alert(title, message):
     except Exception as e:
         print(f"❌ Failed to send Pushover alert: {e}")
 
-# Main Playwright logic
-async def main():
-    url = "https://www.ethics.senate.gov/public/index.cfm/financial-disclosure-reports"
+# Step 1: Download and extract Senate ZIP
+def download_and_extract_zip(zip_url):
+    print(f"📥 Downloading ZIP from: {zip_url}")
+    r = requests.get(zip_url)
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        z.extractall(TEMP_DIR)
+    return [os.path.join(TEMP_DIR, f) for f in os.listdir(TEMP_DIR) if f.endswith(".pdf")]
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+# Step 2: Extract text from PDF (OCR fallback)
+def extract_text_from_pdf(pdf_path):
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        return text.strip()
+    except Exception as e:
+        print(f"⚠️ pdfplumber failed on {pdf_path}: {e}")
+        return ""
 
-        print("🌐 Navigating to Senate Ethics search page...")
-        await page.goto(url, timeout=60000)
+def ocr_pdf(pdf_path):
+    try:
+        images = convert_from_path(pdf_path)
+        return "\n".join(pytesseract.image_to_string(img) for img in images)
+    except Exception as e:
+        print(f"⚠️ OCR failed on {pdf_path}: {e}")
+        return ""
 
-        # Try multiple selectors in case the page structure changed
-        try:
-            print("⏳ Waiting for Senate page to load...")
-            await page.wait_for_selector("select#filing_year, select[name='report_year']", timeout=90000)
-            print("✅ Found year selector.")
-        except PlaywrightTimeoutError:
-            print("❌ Could not find filing year selector on Senate Ethics page.")
-            print("⚠️ The site structure may have changed. Consider switching to ZIP-based parsing instead.")
-            await browser.close()
-            return
+# Step 3: Search for keyword match
+def search_keywords(text):
+    lines = text.splitlines()
+    for line in lines:
+        if any(keyword.lower() in line.lower() for keyword in KEYWORDS):
+            return line
+    return None
 
-        # Example scraping logic (modify this section as needed for real use)
-        content = await page.content()
+# Step 4: Main logic
+def main():
+    pdf_files = download_and_extract_zip(SENATE_ZIP_URL)
+    print(f"🔍 Extracted {len(pdf_files)} PDFs")
 
-        # Search page content for keywords
-        for keyword in KEYWORDS:
-            if keyword.lower() in content.lower():
-                print(f"✅ Match found: {keyword}")
-                message = f"UNH-related term found on Senate Ethics page:\n\nKeyword: {keyword}\n\n{url}"
-                send_pushover_alert("Senate UNH Disclosure Detected", message)
-                with open(LOG_FILE, "a") as f:
-                    f.write(f"{keyword} | {url}\n")
-                break
-        else:
-            print("🔍 No UNH-related terms found on the page.")
+    for pdf in pdf_files:
+        text = extract_text_from_pdf(pdf)
+        if len(text.strip()) < 100:
+            text = ocr_pdf(pdf)
 
-        await browser.close()
+        match_line = search_keywords(text)
+        if match_line:
+            filename = os.path.basename(pdf)
+            print(f"✅ MATCH: {filename}\n{match_line}")
+            send_pushover_alert(
+                "Senate UNH Disclosure Found",
+                f"File: {filename}\n\nMatched line:\n{match_line}"
+            )
+            with open(LOG_FILE, "a") as log:
+                log.write(f"{datetime.now()} | {filename} | {match_line}\n")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
