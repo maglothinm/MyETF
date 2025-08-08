@@ -6,10 +6,6 @@ import pdfplumber
 import pytesseract
 from pdf2image import convert_from_path
 
-# Load secrets from GitHub Actions environment
-PUSHOVER_API_TOKEN = os.getenv("PUSHOVER_API_TOKEN")
-PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
-
 # Define keywords to search for
 KEYWORDS = ["UNH", "UnitedHealth"]
 
