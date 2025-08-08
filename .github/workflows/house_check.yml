@@ -25,4 +25,4 @@ jobs:
         pip install pdfplumber pytesseract pdf2image requests beautifulsoup4
 
     - name: Run House Disclosure Script
-      run: python scripts/check_house_disclosures.
+      run: python scripts/check_house_disclosures.py
