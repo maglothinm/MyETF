@@ -22,7 +22,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y tesseract-ocr poppler-utils
-        pip install pdfplumber pytesseract pdf2image requests beautifulsoup4 python-pushover
+        pip install pdfplumber pytesseract pdf2image requests beautifulsoup4 pushover_complete
 
     - name: Run House Disclosure Script
       env:
