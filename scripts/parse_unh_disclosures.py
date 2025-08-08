@@ -69,7 +69,11 @@ def main():
     for pdf in pdf_files:
         text = extract_text_from_pdf(pdf)
         if len(text.strip()) < 100:
-            text = ocr_pdf(pdf)
+           try:
+              text = ocr_pdf(pdf)
+           except Exception as e:
+              print(f"❌ ocr_pdf failed outside function scope: {e}")
+              text = ""
 
         match_line = search_keywords(text)
         if match_line:
