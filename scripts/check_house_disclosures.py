@@ -4,16 +4,11 @@ import requests
 import tempfile
 import shutil
 import pdfplumber
-from pushover import Client
 
 # === CONFIGURATION ===
 
 HOUSE_ZIP_URL = "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2025FD.ZIP"
 KEYWORDS = ["UNH", "UnitedHealth"]
-
-# Get Pushover credentials from GitHub Secrets or local environment
-PUSHOVER_API_TOKEN = os.getenv("PUSHOVER_API_TOKEN")
-PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
 
 
 def download_and_extract_zip(zip_url):
