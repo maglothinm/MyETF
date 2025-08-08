@@ -2,11 +2,14 @@ name: Senate UNH Disclosure Check
 
 on:
   schedule:
-    - cron: "0 13,16,20 * * *"  # 09:00, 12:00, 16:00 ET
+    - cron: '0 13,16,20 * * *'  # 3x/day UTC (09:00, 12:00, 16:00 ET)
   workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/**'
 
 jobs:
-  run-senate-check:
+  run-script:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,22 +19,20 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      - name: Install system packages
+      - name: Install APT dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y poppler-utils tesseract-ocr
+          sudo apt-get install -y tesseract-ocr poppler-utils
 
-      - name: Install Python & Playwright dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install playwright
-          playwright install chromium
+          pip install pdfplumber pytesseract pdf2image requests beautifulsoup4 pushover_complete
 
-      - name: Run Senate UNH Disclosure Parser
+      - name: Run UNH disclosure parser
+        run: python scripts/parse_unh_disclosures.py
         env:
           PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_API_TOKEN }}
           PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
-        run: python scripts/parse_unh_disclosures.py
