@@ -1,0 +1,5 @@
+.............                                                            [100%]
+13 passed in 0.15s
+workflow YAML parsed successfully
+shell syntax parsed successfully
+apply smoke test succeeded
